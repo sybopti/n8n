@@ -7,7 +7,6 @@ import type {
 	IDataObject,
 } from 'n8n-workflow';
 import { NodeConnectionTypes } from 'n8n-workflow';
-import { BASE_URL } from './helpers/constants';
 import {
 	ICreateSmartCampaignsApiResponse,
 	IGetWebhookApiResponse,
@@ -118,189 +117,275 @@ export class OptimizelyCampaignTrigger implements INodeType {
 	webhookMethods = {
 		default: {
 			async checkExists(this: IHookFunctions): Promise<boolean> {
-				const nodeData = this.getWorkflowStaticData('node');
+				console.log('CHECK_EXISTING');
+				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
+				const webhookType = this.getNodeParameter('events') as string;
 				const targetUrl = this.getNodeWebhookUrl('default');
-				const type = this.getNodeParameter('events') as string;
 
-				const webhookId = nodeData.webhookId as string | undefined;
-				console.log('checkExists', {
-					webhookId: webhookId,
-					targetUrl: targetUrl,
-				});
+				console.log('nodeData', nodeData);
+				console.log('desiredType', webhookType);
+				console.log('desiredUrl', targetUrl);
 
-				if (nodeData.webhookId === undefined) {
+				const webHook = nodeData.webhook as IGetWebhookApiResponse;
+				const apiWebHooks = await webhookHelpers.getWebhooks.call(this);
+
+				if (webHook) {
+					let knownWebHook = apiWebHooks.find((hook) => hook.id === webHook.id);
+					if (knownWebHook) {
+						return true;
+					} else {
+						console.log('DEBUG: The NodeData webhook does not match up with the API one', {
+							NodeData: webHook,
+							ApiData: apiWebHooks,
+						});
+						const relatedWebHooks = apiWebHooks.filter(
+							(hook) =>
+								webhookHelpers.getNodeIdFromWebHookUrl(hook.targetUrl) ==
+								webhookHelpers.getNodeIdFromWebHookUrl(webHook.targetUrl),
+						);
+						if (relatedWebHooks) {
+							console.log('DEBUG: Add the known webhook to stale for deletion', relatedWebHooks);
+							nodeData._staleWebhooks = relatedWebHooks;
+						}
+						return false;
+					}
+				} else {
+					console.log('DEBUG: No WebHook stored in NodeData!');
+					const relatedWebHooks = apiWebHooks.filter(
+						(hook) =>
+							webhookHelpers.getNodeIdFromWebHookUrl(hook.targetUrl) ==
+							webhookHelpers.getNodeIdFromWebHookUrl(targetUrl || ''),
+					);
+					if (relatedWebHooks) {
+						console.log(
+							'DEBUG: Found a webhook with a related NodeId. Marked for deletion!',
+							relatedWebHooks,
+						);
+						nodeData._staleWebhooks = relatedWebHooks;
+					}
 					return false;
 				}
-
-				let offset = 0;
-				const limit = 1;
-
-				try {
-					while (true) {
-						const response = await webhookHelpers.getWebhooks.call(this, offset, limit);
-						const match = response.find((w) => w.type === type && w.targetUrl === targetUrl);
-
-						console.log('RESPONSE:', response);
-						if (match) {
-							nodeData.webhookId = match.id;
-							return true;
-						}
-
-						if (response.length < limit) {
-							return false;
-						}
-
-						offset += limit;
-					}
-				} catch (err: any) {
-					const status = err?.statusCode ?? err?.code;
-					const body = err?.response?.body;
-					throw new Error(
-						`Optimizely GET /webhooks failed (${status}): ${
-							body ? (typeof body === 'string' ? body : JSON.stringify(body)) : err?.message
-						}`,
-					);
-				}
 			},
-
-			//async checkExists(this: IHookFunctions): Promise<boolean> {
-			//	const nodeData = this.getWorkflowStaticData('node');
-			//	const targetUrl = this.getNodeWebhookUrl('default');
-			//	const type = this.getNodeParameter('events') as string;
-
-			//	const webhookId = nodeData.webhookId as string | undefined;
-			//	console.log("checkExists", { "webhookId": webhookId })
-
-			//	if (nodeData.webhookId === undefined) {
-			//		return false;
-			//	}
-
-			//	let offset = 0;
-			//	const limit = 1;
-
-			//},
-
 			async create(this: IHookFunctions): Promise<boolean> {
-				const nodeData = this.getWorkflowStaticData('node');
-				const { client: clientId } = (await this.getCredentials('OptimizelyCampaignApi')) as {
-					client: string;
-				};
+				console.log('CREATE');
+				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
 				const webhookType = this.getNodeParameter('events') as IWebhookType;
 				const targetUrl = this.getNodeWebhookUrl('default') || '';
 				let webhook: IGetWebhookApiResponse | undefined;
 				let testWebhookMailingId: number = 0;
 
-				const webhookId = nodeData.webhookId as string | undefined;
-				console.log('create', { webhookId: webhookId });
+				console.log('nodeData', nodeData);
+				console.log('desiredType', webhookType);
+				console.log('desiredUrl', targetUrl);
+				console.log('STALE:', nodeData._staleWebhooks);
 
-				// Create a Webhook
-				try {
-					const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
+				////////////////////////////
 
-					// Check if response contains a id
-					if (!response.id) {
-						throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
+				const stale = (nodeData._staleWebhooks as Array<IGetWebhookApiResponse> | undefined) ?? [];
+				if (stale.length) {
+					for (const hook of stale) {
+						try {
+							await webhookHelpers.deactivateWebhook.call(this, hook.id);
+						} catch {}
+						try {
+							await webhookHelpers.deleteWebhook.call(this, hook.id);
+						} catch {}
+
+						console.log('create()', {
+							Message: 'Deleting stales',
+							Data: {
+								webhookId: hook,
+							},
+						});
 					}
-
-					webhook = response;
-				} catch (e) {
-					throw new Error(e);
+					delete nodeData._staleWebhooks;
 				}
 
-				// Try to get a Mailing to validate the webhook
+				////////////////////////////
+
+				console.log('MODE::::::', this.getMode());
+
+				//// Create a Webhook
+				//try {
+				//	const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
+
+				//	// Check if response contains a id
+				//	if (!response.id) {
+				//		throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
+				//	}
+
+				//	webhook = response;
+				//} catch (e) {
+				//	throw new Error(e);
+				//}
+
+				//if (this.getMode && this.getMode() === 'manual') {
+				//	// Try to get a Mailing to validate the webhook
+				//	//try {
+				//	//	testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
+				//	//} catch (e) {
+				//	//	throw new Error(e);
+				//	//}
+
+				//	if (testWebhookMailingId == 0) {
+				//		let smartCampaignId: ICreateSmartCampaignsApiResponse | undefined = undefined;
+
+				//		// Create a new Smart Campaign
+				//		try {
+				//			const response = await webhookHelpers.createSmartCampaign.call(this);
+				//			smartCampaignId = response;
+				//		} catch (e) {
+				//			throw new Error(e);
+				//		}
+
+				//		// Create a new Smart Campaign mailing
+				//		try {
+				//			const response = await webhookHelpers.createMailingForSmartCampaign.call(
+				//				this,
+				//				smartCampaignId!.id,
+				//			);
+				//			testWebhookMailingId = response.id;
+				//		} catch (e) {
+				//			throw new Error(e);
+				//		}
+				//	}
+
+				//	// Verify Webhook
+				//	try {
+				//		console.log("create()", {
+				//			"Message": "Verify Webhook",
+				//			"Data": {
+				//				webhook: webhook
+				//			}
+				//		});
+				//		let response = await webhookHelpers.verifyWebhook.call(
+				//			this,
+				//			webhook!.id,
+				//			testWebhookMailingId,
+				//		);
+				//		if (response.httpStatusCode !== 200) {
+				//			throw new Error('Statuscode not 200');
+				//		}
+
+				//		console.log('DELETE THAT SHIT:', {
+				//			'this.getNode(): ': this.getMode(),
+				//			'this.getMode': this.getMode,
+				//		});
+				//		try {
+				//			await webhookHelpers.deleteWebhook.call(this, webhook!.id);
+				//			return true;
+				//		} catch { }
+
+				//	} catch (e) {
+				//		throw new Error(e);
+				//	}
+				//}
+
 				try {
-					testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
-				} catch (e) {
-					throw new Error(e);
-				}
-
-				if (testWebhookMailingId == 0) {
-					let smartCampaignId: ICreateSmartCampaignsApiResponse | undefined = undefined;
-
-					// Create a new Smart Campaign
+					// Create a Webhook
 					try {
-						const response = await webhookHelpers.createSmartCampaign.call(this);
-						smartCampaignId = response;
+						const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
+
+						// Check if response contains an id
+						if (!response.id) {
+							throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
+						}
+
+						webhook = response;
 					} catch (e) {
 						throw new Error(e);
 					}
 
-					// Create a new Smart Campaign mailing
+					// Try to get a Mailing to validate the webhook
 					try {
-						const response = await webhookHelpers.createMailingForSmartCampaign.call(
+						testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
+					} catch (e) {
+						throw new Error(e);
+					}
+
+					if (testWebhookMailingId == 0) {
+						let smartCampaignId: ICreateSmartCampaignsApiResponse | undefined = undefined;
+
+						// Create a new Smart Campaign
+						try {
+							const response = await webhookHelpers.createSmartCampaign.call(this);
+							smartCampaignId = response;
+						} catch (e) {
+							throw new Error(e);
+						}
+
+						// Create a new Smart Campaign mailing
+						try {
+							const response = await webhookHelpers.createMailingForSmartCampaign.call(
+								this,
+								smartCampaignId!.id,
+							);
+							testWebhookMailingId = response.id;
+						} catch (e) {
+							throw new Error(e);
+						}
+					}
+
+					// Verify Webhook
+					try {
+						console.log('create()', {
+							Message: 'Verify Webhook',
+							Data: {
+								webhook: webhook,
+							},
+						});
+						let response = await webhookHelpers.verifyWebhook.call(
 							this,
-							smartCampaignId!.id,
+							webhook!.id,
+							testWebhookMailingId,
 						);
-						testWebhookMailingId = response.id;
-					} catch (e) {
-						throw new Error(e);
-					}
-				}
-
-				// Verify Webhook
-				try {
-					let response = await webhookHelpers.verifyWebhook.call(
-						this,
-						webhook!.id,
-						testWebhookMailingId,
-					);
-					if (response.httpStatusCode !== 200) {
-						throw new Error('Statuscode not 200');
-					}
-					console.log('NODE-STATE:', {
-						'this.getNode(): ': this.getMode(),
-						'this.getMode': this.getMode,
-					});
-					if (this.getMode && this.getMode() === 'manual') {
-						console.log('DELETE THAT SHIT:', {
+						if (response.httpStatusCode !== 200) {
+							throw new Error('Statuscode not 200');
+						}
+						console.log('NODE-STATE:', {
 							'this.getNode(): ': this.getMode(),
 							'this.getMode': this.getMode,
 						});
-						try {
-							await webhookHelpers.deleteWebhook.call(this, webhook!.id);
-							return true;
-						} catch {}
+						if (this.getMode && this.getMode() === 'manual') {
+							console.log('DELETE THAT SHIT:', {
+								'this.getNode(): ': this.getMode(),
+								'this.getMode': this.getMode,
+							});
+							try {
+								await webhookHelpers.deleteWebhook.call(this, webhook!.id);
+								return true;
+							} catch {}
+						}
+					} catch (e) {
+						throw new Error(e);
 					}
-				} catch (e) {
-					throw new Error(e);
-				}
+				} catch (_) {}
 
-				// Activate Webhook
 				try {
-					let request = (await this.helpers.requestWithAuthentication.call(
-						this,
-						'OptimizelyCampaignApi',
-						{
-							method: 'POST',
-							baseURL: BASE_URL + clientId,
-							url: `/webhooks/${webhook!.id}/activate`,
-							json: true,
-						},
-					)) as IGetWebhookApiResponse;
+					await webhookHelpers.activateWebhook.call(this, webhook!.id);
+				} catch (_) {}
 
-					console.log('ACTIVATE:', request);
-				} catch (e) {
-					throw new Error(e);
-				}
-
-				nodeData.webhookId = webhook!.id;
+				console.log('webhook', webhook);
+				nodeData.webhook = webhook;
+				console.log('webhook in node', nodeData.webhook);
 				return true;
 			},
 
 			async delete(this: IHookFunctions): Promise<boolean> {
+				console.log('DELETE()');
 				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
-				const webhookId = nodeData.webhookId as string | undefined;
-				if (!webhookId) return true;
+				const webhook = nodeData.webhook as IGetWebhookApiResponse | undefined;
+				if (!webhook) return true;
 
 				const credentials = await this.getCredentials('OptimizelyCampaignApi');
 				const clientId = credentials.client as string;
 				const baseURL = `https://api.campaign.episerver.net/rest/${clientId}`;
-				console.log('delete', { webhookId: webhookId });
+				console.log('delete', { webhookId: webhook });
 				try {
 					await this.helpers.requestWithAuthentication.call(this, 'OptimizelyCampaignApi', {
 						method: 'POST',
 						baseURL,
-						url: `/webhooks/${webhookId}/deactivate`,
+						url: `/webhooks/${webhook.id}/deactivate`,
 						json: true,
 					});
 				} catch {}
@@ -309,7 +394,7 @@ export class OptimizelyCampaignTrigger implements INodeType {
 					await this.helpers.requestWithAuthentication.call(this, 'OptimizelyCampaignApi', {
 						method: 'DELETE',
 						baseURL,
-						url: `/webhooks/${webhookId}`,
+						url: `/webhooks/${webhook.id}`,
 						json: true,
 					});
 				} catch (err: any) {
@@ -317,7 +402,7 @@ export class OptimizelyCampaignTrigger implements INodeType {
 					if (!code.startsWith('404')) throw err;
 				}
 
-				delete nodeData.webhookId;
+				delete nodeData.webhook;
 				return true;
 			},
 		},

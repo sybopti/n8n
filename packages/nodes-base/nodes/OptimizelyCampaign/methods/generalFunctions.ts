@@ -22,6 +22,7 @@ export const webhookHelpers = {
 	async getVerifyMailing(
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 	): Promise<number> {
+		console.log('getVerifyMailing');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		let smartCampaign: IGetSmartCampaignsApiResponse | undefined = undefined;
 		let mailingId: number = 0;
@@ -31,7 +32,7 @@ export const webhookHelpers = {
 				method: 'GET',
 				baseURL: BASE_URL + clientId,
 				url: '/smartcampaigns',
-				qs: { sort: 'CREATED', direction: 'DESC', offset: 100, limit: 1 },
+				qs: { sort: 'CREATED', direction: 'DESC', offset: 0, limit: 1 },
 				headers: { accept: 'application/json' },
 				json: true,
 			})) as IGetSmartCampaignsApiResponse;
@@ -74,6 +75,7 @@ export const webhookHelpers = {
 	async createSmartCampaign(
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 	): Promise<ICreateSmartCampaignsApiResponse> {
+		console.log('createSmartCampaign');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 
 		try {
@@ -101,6 +103,7 @@ export const webhookHelpers = {
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		smartCampaignId: number,
 	): Promise<ICreateSmartCampaignsApiResponse> {
+		console.log('createMailingForSmartCampaign');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		console.log(`/smartcampaigns/${smartCampaignId}/messages`);
 		try {
@@ -123,6 +126,29 @@ export const webhookHelpers = {
 	},
 
 	/**
+	 * Delte a new Smart Campaign
+	 */
+	async deleteSmartCampaign(
+		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
+		smartCampaignId: number,
+	): Promise<ICreateSmartCampaignsApiResponse> {
+		console.log('deleteSmartCampaign');
+		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
+		try {
+			const response = (await this.helpers.requestWithAuthentication.call(this, CREDENTIALS_KEY, {
+				method: 'DELETE',
+				baseURL: BASE_URL + clientId,
+				url: `/smartcampaigns/${smartCampaignId}`,
+				json: true,
+			})) as ICreateSmartCampaignsApiResponse;
+
+			return response;
+		} catch (e) {
+			throw new NodeApiError(this.getNode(), e);
+		}
+	},
+
+	/**
 	 * Returns all registered webhooks
 	 */
 	async getWebhooks(
@@ -130,6 +156,7 @@ export const webhookHelpers = {
 		offset: number = 0,
 		limit: number = 100,
 	): Promise<Array<IGetWebhookApiResponse>> {
+		console.log('getWebhooks');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			const response = (await this.helpers.httpRequestWithAuthentication.call(
@@ -152,6 +179,24 @@ export const webhookHelpers = {
 	},
 
 	/**
+	 * Returns the nodeId which is included in the n8n webhook targetUrl
+	 */
+	getNodeIdFromWebHookUrl(targetUrl: string): string {
+		console.log('getNodeIdFromWebHookUrl');
+		try {
+			const url = new URL(targetUrl);
+			const excludedValues = new Set(['', ' ', 'webhook', 'webhook-test', 'optimizely']);
+
+			const pathParts = url.pathname
+				.split('/')
+				.filter((part) => !excludedValues.has(part.toLowerCase()));
+			return pathParts.length > 0 ? String(pathParts[0]) : targetUrl;
+		} catch (e) {
+			return targetUrl;
+		}
+	},
+
+	/**
 	 * Creates a webhook
 	 */
 	async createWebhook(
@@ -159,6 +204,7 @@ export const webhookHelpers = {
 		webhookType: IWebhookType,
 		targetUrl: string,
 	): Promise<IGetWebhookApiResponse> {
+		console.log('createWebhook');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			const response = (await this.helpers.requestWithAuthentication.call(this, CREDENTIALS_KEY, {
@@ -188,6 +234,7 @@ export const webhookHelpers = {
 		webHookId: number,
 		testWebhookMailingId: number,
 	): Promise<IVerifyWebhookApiResponse> {
+		console.log('verifyWebhook');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			let response = (await this.helpers.httpRequestWithAuthentication.call(this, CREDENTIALS_KEY, {
@@ -213,6 +260,7 @@ export const webhookHelpers = {
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		webHookId: number,
 	): Promise<IGetWebhookApiResponse> {
+		console.log('activateWebhook');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			let response = (await this.helpers.requestWithAuthentication.call(this, CREDENTIALS_KEY, {
@@ -232,6 +280,7 @@ export const webhookHelpers = {
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		webHookId: number,
 	): Promise<IGetWebhookApiResponse> {
+		console.log('deactivateWebhook');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			let response = (await this.helpers.requestWithAuthentication.call(this, CREDENTIALS_KEY, {
@@ -251,6 +300,7 @@ export const webhookHelpers = {
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		webHookId: number,
 	): Promise<void> {
+		console.log('deleteWebhook');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
 			await this.helpers.requestWithAuthentication.call(this, CREDENTIALS_KEY, {

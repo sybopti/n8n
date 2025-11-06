@@ -1,14 +1,14 @@
 import { ILoadOptionsFunctions, ResourceMapperFields } from 'n8n-workflow';
 import { isCampaignSystemField, mapApiTypeToN8nType } from '../helpers/utils';
 import { BASE_URL } from './../helpers/constants';
-import { RecipientListField, RecipientListFieldApiResponse } from '../helpers/types';
+import { IRecipientListField, IRecipientListFieldApiResponse } from '../helpers/types';
 
 async function loadRecipientListFieldsPaged(
 	this: ILoadOptionsFunctions,
 	clientId: string,
 	recipientListId: string,
-): Promise<RecipientListField[]> {
-	const out: RecipientListField[] = [];
+): Promise<IRecipientListField[]> {
+	const out: IRecipientListField[] = [];
 	let nextUrl: string | undefined =
 		`${BASE_URL}${encodeURIComponent(clientId)}/recipientlists/${recipientListId}/fields?limit=100`;
 
@@ -18,7 +18,7 @@ async function loadRecipientListFieldsPaged(
 				this,
 				'OptimizelyCampaignApi',
 				{ method: 'GET' as const, uri: nextUrl, json: true },
-			)) as RecipientListFieldApiResponse;
+			)) as IRecipientListFieldApiResponse;
 
 			out.push(...(res.elements ?? []));
 			const nextLink = (res.links ?? []).find((l) => l.rel === 'next');
@@ -49,7 +49,7 @@ async function buildMapperFields(
 		const credentials = await this.getCredentials('OptimizelyCampaignApi');
 		const clientId = credentials.client as string;
 
-		const fields: RecipientListField[] = await loadRecipientListFieldsPaged.call(
+		const fields: IRecipientListField[] = await loadRecipientListFieldsPaged.call(
 			this,
 			clientId,
 			recipientListId,
