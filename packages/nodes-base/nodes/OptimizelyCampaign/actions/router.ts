@@ -2,7 +2,6 @@ import { IExecuteFunctions, INodeExecutionData, IDataObject } from 'n8n-workflow
 import * as recipient from './recipient/Recipient.resource';
 import * as transactionalMail from './transactionalMail/TransactionalMail.resource';
 
-// Ein Handler exportiert z. B. { create: { execute }, update: { execute } }
 type OperationHandler = {
 	execute: (this: IExecuteFunctions, itemIndex: number) => Promise<IDataObject | IDataObject[]>;
 };
@@ -13,7 +12,7 @@ const resources: Record<string, ResourceModule> = {
 	transactionalMail,
 };
 
-const OP_PARAM = 'operation'; // <- nur noch ein globaler Parameter
+const OP_PARAM = 'operation';
 
 export async function router(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 	const items = this.getInputData();
@@ -31,7 +30,6 @@ export async function router(this: IExecuteFunctions): Promise<INodeExecutionDat
 
 			const opHandler = resourceModule[operation];
 			if (!opHandler?.execute) {
-				// hilfreiche Fehlermeldung mit bekannten Ops dieser Resource
 				const available = Object.keys(resourceModule).sort().join(', ') || '—';
 				throw new Error(
 					`Unknown operation '${operation}' for resource '${String(resource)}'. Available: ${available}`,

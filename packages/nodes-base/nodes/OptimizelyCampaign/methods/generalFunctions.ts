@@ -5,7 +5,7 @@ import {
 	ILoadOptionsFunctions,
 	NodeApiError,
 } from 'n8n-workflow';
-import { BASE_URL, CREDENTIALS_KEY } from '../helpers/constants';
+import { BASE_URL, CREDENTIALS_KEY, INTEGRATION_ID } from '../helpers/constants';
 import {
 	ICreateSmartCampaignsApiResponse,
 	IGetSmartCampaignsApiResponse,
@@ -102,7 +102,7 @@ export const webhookHelpers = {
 	async createMailingForSmartCampaign(
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		smartCampaignId: number,
-	): Promise<ICreateSmartCampaignsApiResponse> {
+	): Promise<IGetSmartCampaignsMailingsApiResponse> {
 		console.log('createMailingForSmartCampaign');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		console.log(`/smartcampaigns/${smartCampaignId}/messages`);
@@ -117,7 +117,7 @@ export const webhookHelpers = {
 					mediaType: 'email',
 				} as IDataObject,
 				json: true,
-			})) as ICreateSmartCampaignsApiResponse;
+			})) as IGetSmartCampaignsMailingsApiResponse;
 
 			return response;
 		} catch (e) {
@@ -126,12 +126,12 @@ export const webhookHelpers = {
 	},
 
 	/**
-	 * Delte a new Smart Campaign
+	 * Delete a new Smart Campaign
 	 */
 	async deleteSmartCampaign(
 		this: IHookFunctions | IExecuteFunctions | ILoadOptionsFunctions,
 		smartCampaignId: number,
-	): Promise<ICreateSmartCampaignsApiResponse> {
+	): Promise<string> {
 		console.log('deleteSmartCampaign');
 		const { client: clientId } = (await this.getCredentials(CREDENTIALS_KEY)) as { client: string };
 		try {
@@ -140,7 +140,7 @@ export const webhookHelpers = {
 				baseURL: BASE_URL + clientId,
 				url: `/smartcampaigns/${smartCampaignId}`,
 				json: true,
-			})) as ICreateSmartCampaignsApiResponse;
+			})) as string;
 
 			return response;
 		} catch (e) {
@@ -166,7 +166,7 @@ export const webhookHelpers = {
 					method: 'GET',
 					baseURL: BASE_URL + clientId,
 					url: '/webhooks',
-					qs: { sort: 'CREATED', direction: 'DESC', offset, limit },
+					qs: { sort: 'CREATED', direction: 'DESC', offset, limit, integrationId: INTEGRATION_ID },
 					headers: { accept: 'application/json' },
 					json: true,
 				},
@@ -216,6 +216,7 @@ export const webhookHelpers = {
 					type: webhookType,
 					format: 'json',
 					targetUrl: targetUrl,
+					integrationId: INTEGRATION_ID,
 				} as IDataObject,
 				json: true,
 			})) as IGetWebhookApiResponse;

@@ -6,7 +6,7 @@ import type {
 	IWebhookResponseData,
 	IDataObject,
 } from 'n8n-workflow';
-import { NodeConnectionTypes } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes } from 'n8n-workflow';
 import {
 	ICreateSmartCampaignsApiResponse,
 	IGetWebhookApiResponse,
@@ -38,10 +38,51 @@ export class OptimizelyCampaignTrigger implements INodeType {
 		],
 
 		properties: [
+			// -------------------------------------------
+			// MODE SWITCH
+			// -------------------------------------------
+			//{
+			//	displayName: 'Trigger Mode',
+			//	name: 'triggerMode',
+			//	type: 'options',
+			//	default: 'webhook',
+			//	options: [
+			//		{ name: 'Webhook', value: 'webhook' },
+			//		{ name: 'Polling', value: 'polling' },
+			//	],
+			//	description: 'Select whether to use webhook or polling',
+			//},
+			//// -------------------------------------------
+			//// POLLING OPTIONS
+			//// -------------------------------------------
+			//{
+			//	displayName: 'Recipient List',
+			//	name: 'recipientListId',
+			//	type: 'options',
+			//	displayOptions: { show: { triggerMode: ['polling'] } },
+			//	typeOptions: { loadOptionsMethod: 'getRecipientLists' },
+			//	required: true,
+			//	default: '',
+			//	description: 'Recipient list to monitor for new entries.',
+			//},
+			//{
+			//	displayName: 'Polling Interval (Minutes)',
+			//	name: 'pollInterval',
+			//	type: 'number',
+			//	displayOptions: { show: { triggerMode: ['polling'] } },
+			//	typeOptions: { minValue: 1 },
+			//	required: true,
+			//	default: 5,
+			//},
+			// -------------------------------------------
+			// WEBHOOK OPTIONS
+			// -------------------------------------------
+
 			{
-				displayName: 'Events',
+				displayName: 'Webhook Event',
 				name: 'events',
 				type: 'options',
+				//displayOptions: { show: { triggerMode: ['webhook'] } },
 				required: true,
 				default: [],
 				description: 'The events that can trigger the webhook and whether they are enabled',
@@ -117,15 +158,9 @@ export class OptimizelyCampaignTrigger implements INodeType {
 	webhookMethods = {
 		default: {
 			async checkExists(this: IHookFunctions): Promise<boolean> {
-				console.log('CHECK_EXISTING');
 				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
-				const webhookType = this.getNodeParameter('events') as string;
+				//const webhookType = this.getNodeParameter('events') as string;
 				const targetUrl = this.getNodeWebhookUrl('default');
-
-				console.log('nodeData', nodeData);
-				console.log('desiredType', webhookType);
-				console.log('desiredUrl', targetUrl);
-
 				const webHook = nodeData.webhook as IGetWebhookApiResponse;
 				const apiWebHooks = await webhookHelpers.getWebhooks.call(this);
 
@@ -134,53 +169,35 @@ export class OptimizelyCampaignTrigger implements INodeType {
 					if (knownWebHook) {
 						return true;
 					} else {
-						console.log('DEBUG: The NodeData webhook does not match up with the API one', {
-							NodeData: webHook,
-							ApiData: apiWebHooks,
-						});
 						const relatedWebHooks = apiWebHooks.filter(
 							(hook) =>
 								webhookHelpers.getNodeIdFromWebHookUrl(hook.targetUrl) ==
 								webhookHelpers.getNodeIdFromWebHookUrl(webHook.targetUrl),
 						);
 						if (relatedWebHooks) {
-							console.log('DEBUG: Add the known webhook to stale for deletion', relatedWebHooks);
 							nodeData._staleWebhooks = relatedWebHooks;
 						}
 						return false;
 					}
 				} else {
-					console.log('DEBUG: No WebHook stored in NodeData!');
 					const relatedWebHooks = apiWebHooks.filter(
 						(hook) =>
 							webhookHelpers.getNodeIdFromWebHookUrl(hook.targetUrl) ==
 							webhookHelpers.getNodeIdFromWebHookUrl(targetUrl || ''),
 					);
 					if (relatedWebHooks) {
-						console.log(
-							'DEBUG: Found a webhook with a related NodeId. Marked for deletion!',
-							relatedWebHooks,
-						);
 						nodeData._staleWebhooks = relatedWebHooks;
 					}
 					return false;
 				}
 			},
 			async create(this: IHookFunctions): Promise<boolean> {
-				console.log('CREATE');
 				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
 				const webhookType = this.getNodeParameter('events') as IWebhookType;
 				const targetUrl = this.getNodeWebhookUrl('default') || '';
 				let webhook: IGetWebhookApiResponse | undefined;
-				let testWebhookMailingId: number = 0;
 
-				console.log('nodeData', nodeData);
-				console.log('desiredType', webhookType);
-				console.log('desiredUrl', targetUrl);
-				console.log('STALE:', nodeData._staleWebhooks);
-
-				////////////////////////////
-
+				// Clean up stale data
 				const stale = (nodeData._staleWebhooks as Array<IGetWebhookApiResponse> | undefined) ?? [];
 				if (stale.length) {
 					for (const hook of stale) {
@@ -190,184 +207,106 @@ export class OptimizelyCampaignTrigger implements INodeType {
 						try {
 							await webhookHelpers.deleteWebhook.call(this, hook.id);
 						} catch {}
-
-						console.log('create()', {
-							Message: 'Deleting stales',
-							Data: {
-								webhookId: hook,
-							},
-						});
 					}
 					delete nodeData._staleWebhooks;
 				}
 
-				////////////////////////////
-
-				console.log('MODE::::::', this.getMode());
-
-				//// Create a Webhook
-				//try {
-				//	const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
-
-				//	// Check if response contains a id
-				//	if (!response.id) {
-				//		throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
-				//	}
-
-				//	webhook = response;
-				//} catch (e) {
-				//	throw new Error(e);
-				//}
-
-				//if (this.getMode && this.getMode() === 'manual') {
-				//	// Try to get a Mailing to validate the webhook
-				//	//try {
-				//	//	testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
-				//	//} catch (e) {
-				//	//	throw new Error(e);
-				//	//}
-
-				//	if (testWebhookMailingId == 0) {
-				//		let smartCampaignId: ICreateSmartCampaignsApiResponse | undefined = undefined;
-
-				//		// Create a new Smart Campaign
-				//		try {
-				//			const response = await webhookHelpers.createSmartCampaign.call(this);
-				//			smartCampaignId = response;
-				//		} catch (e) {
-				//			throw new Error(e);
-				//		}
-
-				//		// Create a new Smart Campaign mailing
-				//		try {
-				//			const response = await webhookHelpers.createMailingForSmartCampaign.call(
-				//				this,
-				//				smartCampaignId!.id,
-				//			);
-				//			testWebhookMailingId = response.id;
-				//		} catch (e) {
-				//			throw new Error(e);
-				//		}
-				//	}
-
-				//	// Verify Webhook
-				//	try {
-				//		console.log("create()", {
-				//			"Message": "Verify Webhook",
-				//			"Data": {
-				//				webhook: webhook
-				//			}
-				//		});
-				//		let response = await webhookHelpers.verifyWebhook.call(
-				//			this,
-				//			webhook!.id,
-				//			testWebhookMailingId,
-				//		);
-				//		if (response.httpStatusCode !== 200) {
-				//			throw new Error('Statuscode not 200');
-				//		}
-
-				//		console.log('DELETE THAT SHIT:', {
-				//			'this.getNode(): ': this.getMode(),
-				//			'this.getMode': this.getMode,
-				//		});
-				//		try {
-				//			await webhookHelpers.deleteWebhook.call(this, webhook!.id);
-				//			return true;
-				//		} catch { }
-
-				//	} catch (e) {
-				//		throw new Error(e);
-				//	}
-				//}
-
+				// Create Webhook
 				try {
-					// Create a Webhook
-					try {
-						const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
+					const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
 
-						// Check if response contains an id
-						if (!response.id) {
-							throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
-						}
-
-						webhook = response;
-					} catch (e) {
-						throw new Error(e);
+					if (!response.id) {
+						throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
 					}
 
-					// Try to get a Mailing to validate the webhook
-					try {
-						testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
-					} catch (e) {
-						throw new Error(e);
-					}
+					webhook = response;
+				} catch (e) {
+					throw new Error(String(e));
+				}
 
-					if (testWebhookMailingId == 0) {
-						let smartCampaignId: ICreateSmartCampaignsApiResponse | undefined = undefined;
-
-						// Create a new Smart Campaign
-						try {
-							const response = await webhookHelpers.createSmartCampaign.call(this);
-							smartCampaignId = response;
-						} catch (e) {
-							throw new Error(e);
-						}
-
-						// Create a new Smart Campaign mailing
-						try {
-							const response = await webhookHelpers.createMailingForSmartCampaign.call(
-								this,
-								smartCampaignId!.id,
-							);
-							testWebhookMailingId = response.id;
-						} catch (e) {
-							throw new Error(e);
-						}
-					}
-
-					// Verify Webhook
-					try {
-						console.log('create()', {
-							Message: 'Verify Webhook',
-							Data: {
-								webhook: webhook,
-							},
-						});
-						let response = await webhookHelpers.verifyWebhook.call(
-							this,
-							webhook!.id,
-							testWebhookMailingId,
-						);
-						if (response.httpStatusCode !== 200) {
-							throw new Error('Statuscode not 200');
-						}
-						console.log('NODE-STATE:', {
-							'this.getNode(): ': this.getMode(),
-							'this.getMode': this.getMode,
-						});
-						if (this.getMode && this.getMode() === 'manual') {
-							console.log('DELETE THAT SHIT:', {
-								'this.getNode(): ': this.getMode(),
-								'this.getMode': this.getMode,
-							});
-							try {
-								await webhookHelpers.deleteWebhook.call(this, webhook!.id);
-								return true;
-							} catch {}
-						}
-					} catch (e) {
-						throw new Error(e);
-					}
+				// Aktivwe Webhook
+				try {
+					await webhookHelpers.activateWebhook.call(this, webhook.id);
 				} catch (_) {}
 
-				try {
-					await webhookHelpers.activateWebhook.call(this, webhook!.id);
-				} catch (_) {}
-
-				console.log('webhook', webhook);
+				// Safe webhook in nodeData
 				nodeData.webhook = webhook;
-				console.log('webhook in node', nodeData.webhook);
+
+				// Manual mode logic
+				if (this.getMode && this.getMode() === 'manual') {
+					const self = this;
+					const webhookId = webhook.id;
+
+					setTimeout(() => {
+						(async () => {
+							let smartCampaign: ICreateSmartCampaignsApiResponse | undefined;
+							let testWebhookMailingId: number = 0;
+							let isCustomTestMailing: boolean = false;
+
+							try {
+								// Fetch Campaign mailing for webhook test
+								try {
+									testWebhookMailingId = await webhookHelpers.getVerifyMailing.call(this);
+								} catch (_) {}
+
+								// If there is no Campaign mailing availbale, create SmartCampaign + Mailing
+								if (testWebhookMailingId === 0) {
+									try {
+										smartCampaign = await webhookHelpers.createSmartCampaign.call(this);
+									} catch (e) {
+										return e;
+									}
+
+									try {
+										const mailing = await webhookHelpers.createMailingForSmartCampaign.call(
+											this,
+											smartCampaign!.id,
+										);
+										testWebhookMailingId = mailing.mailingId;
+									} catch (e) {
+										return e;
+									}
+
+									if (testWebhookMailingId !== 0) {
+										isCustomTestMailing = true;
+									}
+								}
+
+								// Trigger webhook verification
+								try {
+									const verifyRes = await webhookHelpers.verifyWebhook.call(
+										self,
+										webhookId,
+										testWebhookMailingId,
+									);
+									if (verifyRes.httpStatusCode !== 200) {
+										throw new NodeApiError(this.getNode(), {
+											message: `Verification failed: ${verifyRes}`,
+										});
+									}
+								} catch (e) {
+									return e;
+								}
+
+								// Delete test mailing if it is created just for this run.
+								if (isCustomTestMailing) {
+									try {
+										await webhookHelpers.deleteSmartCampaign.call(this, smartCampaign!.id);
+									} catch (e) {
+										return e;
+									}
+								}
+
+								// Clean up manual stuff
+								const data = self.getWorkflowStaticData('node') as IDataObject;
+								delete data.webhook;
+							} catch (e) {
+								throw new NodeApiError(this.getNode(), { message: 'Manuel node run failed' + e });
+							}
+						})();
+					}, 1000); // Wait 1 second to ensure test event has been captured.
+				}
+
 				return true;
 			},
 
@@ -409,10 +348,20 @@ export class OptimizelyCampaignTrigger implements INodeType {
 	};
 
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
-		const bodyData = this.getBodyData();
+		const req = this.getRequestObject();
+
+		const webhookName = this.getWebhookName();
+		if (webhookName === 'setup') {
+			// Is a create webhook confirmation request
+			const res = this.getResponseObject();
+			res.status(200).end();
+			return {
+				noWebhookResponse: true,
+			};
+		}
 
 		return {
-			workflowData: [this.helpers.returnJsonArray(bodyData)],
+			workflowData: [this.helpers.returnJsonArray(req.body as IDataObject)],
 		};
 	}
 }
