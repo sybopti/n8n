@@ -38,51 +38,10 @@ export class OptimizelyCampaignTrigger implements INodeType {
 		],
 
 		properties: [
-			// -------------------------------------------
-			// MODE SWITCH
-			// -------------------------------------------
-			//{
-			//	displayName: 'Trigger Mode',
-			//	name: 'triggerMode',
-			//	type: 'options',
-			//	default: 'webhook',
-			//	options: [
-			//		{ name: 'Webhook', value: 'webhook' },
-			//		{ name: 'Polling', value: 'polling' },
-			//	],
-			//	description: 'Select whether to use webhook or polling',
-			//},
-			//// -------------------------------------------
-			//// POLLING OPTIONS
-			//// -------------------------------------------
-			//{
-			//	displayName: 'Recipient List',
-			//	name: 'recipientListId',
-			//	type: 'options',
-			//	displayOptions: { show: { triggerMode: ['polling'] } },
-			//	typeOptions: { loadOptionsMethod: 'getRecipientLists' },
-			//	required: true,
-			//	default: '',
-			//	description: 'Recipient list to monitor for new entries.',
-			//},
-			//{
-			//	displayName: 'Polling Interval (Minutes)',
-			//	name: 'pollInterval',
-			//	type: 'number',
-			//	displayOptions: { show: { triggerMode: ['polling'] } },
-			//	typeOptions: { minValue: 1 },
-			//	required: true,
-			//	default: 5,
-			//},
-			// -------------------------------------------
-			// WEBHOOK OPTIONS
-			// -------------------------------------------
-
 			{
-				displayName: 'Webhook Event',
+				displayName: 'Events',
 				name: 'events',
 				type: 'options',
-				//displayOptions: { show: { triggerMode: ['webhook'] } },
 				required: true,
 				default: [],
 				description: 'The events that can trigger the webhook and whether they are enabled',
@@ -159,7 +118,6 @@ export class OptimizelyCampaignTrigger implements INodeType {
 		default: {
 			async checkExists(this: IHookFunctions): Promise<boolean> {
 				const nodeData = this.getWorkflowStaticData('node') as IDataObject;
-				//const webhookType = this.getNodeParameter('events') as string;
 				const targetUrl = this.getNodeWebhookUrl('default');
 				const webHook = nodeData.webhook as IGetWebhookApiResponse;
 				const apiWebHooks = await webhookHelpers.getWebhooks.call(this);
@@ -215,13 +173,16 @@ export class OptimizelyCampaignTrigger implements INodeType {
 				try {
 					const response = await webhookHelpers.createWebhook.call(this, webhookType, targetUrl);
 
-					if (!response.id) {
-						throw new Error(`Webhook creation failed: ${JSON.stringify(response)}`);
+					if (!response?.id) {
+						throw new NodeApiError(this.getNode(), {
+							message: 'Webhook creation failed: Optimizely did not return a webhook ID.',
+							description: JSON.stringify(response),
+						});
 					}
 
 					webhook = response;
 				} catch (e) {
-					throw new Error(String(e));
+					throw new NodeApiError(this.getNode(), e);
 				}
 
 				// Aktivwe Webhook
@@ -275,7 +236,7 @@ export class OptimizelyCampaignTrigger implements INodeType {
 								// Trigger webhook verification
 								try {
 									const verifyRes = await webhookHelpers.verifyWebhook.call(
-										self,
+										this,
 										webhookId,
 										testWebhookMailingId,
 									);
@@ -316,29 +277,17 @@ export class OptimizelyCampaignTrigger implements INodeType {
 				const webhook = nodeData.webhook as IGetWebhookApiResponse | undefined;
 				if (!webhook) return true;
 
-				const credentials = await this.getCredentials('OptimizelyCampaignApi');
-				const clientId = credentials.client as string;
-				const baseURL = `https://api.campaign.episerver.net/rest/${clientId}`;
 				console.log('delete', { webhookId: webhook });
 				try {
-					await this.helpers.requestWithAuthentication.call(this, 'OptimizelyCampaignApi', {
-						method: 'POST',
-						baseURL,
-						url: `/webhooks/${webhook.id}/deactivate`,
-						json: true,
-					});
-				} catch {}
+					await webhookHelpers.deactivateWebhook.call(this, webhook.id);
+				} catch (e) {
+					return e;
+				}
 
 				try {
-					await this.helpers.requestWithAuthentication.call(this, 'OptimizelyCampaignApi', {
-						method: 'DELETE',
-						baseURL,
-						url: `/webhooks/${webhook.id}`,
-						json: true,
-					});
-				} catch (err: any) {
-					const code = String(err?.statusCode ?? err?.code ?? '');
-					if (!code.startsWith('404')) throw err;
+					await webhookHelpers.deleteWebhook.call(this, webhook.id);
+				} catch (e) {
+					return e;
 				}
 
 				delete nodeData.webhook;
